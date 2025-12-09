@@ -1,17 +1,38 @@
+export async function onRequestPost(context) {
+  const { env, request } = context
+  const url = new URL(request.url)
+  const key = url.searchParams.get('key')
 
-export async function onRequestPost({ request, env }) {
-  const { R2, ADMIN_KEY } = env;
-  const url = new URL(request.url);
-  if (url.searchParams.get("key") !== ADMIN_KEY)
-    return new Response("Unauthorized", { status: 401 });
+  if (key !== env.ADMIN_KEY) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  }
 
-  const form = await request.formData();
-  const file = form.get("file");
+  try {
+    const formData = await request.formData()
+    const file = formData.get('file')
 
-  const key = `uploads/${Date.now()}_${file.name}`;
-  await R2.put(key, file.stream());
+    if (!file) {
+      return Response.json({ error: 'No file provided' }, { status: 400 })
+    }
 
-  return new Response(JSON.stringify({ file_url: key }), {
-    headers: { "Content-Type": "application/json" },
-  });
+    const timestamp = Date.now()
+    const safeName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_')
+    const fileName = `${timestamp}-${safeName}`
+
+    await env.R2_BUCKET.put(fileName, file.stream(), {
+      httpMetadata: {
+        contentType: file.type
+      }
+    })
+
+    const publicUrl = `${env.PUBLIC_R2}/${fileName}`
+
+    return Response.json({ 
+      success: true, 
+      url: publicUrl,
+      fileName 
+    })
+  } catch (err) {
+    return Response.json({ error: err.message }, { status: 500 })
+  }
 }
